@@ -252,6 +252,21 @@ nested_type = '__'.join(type_.namespaced_name())
       return false;
     }
 @[    end if]@
+@[  elif isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
+    assert(field->ob_type != NULL);
+    assert(field->ob_type->tp_name != NULL);
+    assert(strcmp(field->ob_type->tp_name, "numpy.ndarray") == 0);
+    PyArrayObject * seq_field = (PyArrayObject *)field;
+    assert(PyArray_NDIM(seq_field) == 1);
+    assert(PyArray_TYPE(seq_field) == @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()));
+    @primitive_msg_type_to_c(member.type.value_type) * dest = ros_message->@(member.name);
+    if (PyArray_IS_C_CONTIGUOUS(seq_field)) {
+      memcpy(dest, PyArray_DATA(seq_field), @(member.type.size) * sizeof(*dest));
+    } else {
+      for (Py_ssize_t i = 0; i < @(member.type.size); ++i) {
+        memcpy(&dest[i], PyArray_GETPTR1(seq_field, i), sizeof(*dest));
+      }
+    }
 @[  elif isinstance(member.type, AbstractNestedType)]@
 @[    if isinstance(member.type, AbstractSequence) and isinstance(member.type.value_type, BasicType)]@
     if (PyObject_CheckBuffer(field)) {
@@ -281,22 +296,11 @@ nested_type = '__'.join(type_.namespaced_name())
 @[    else]@
     {
 @[    end if]@
-@[    if isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-      // TODO(dirk-thomas) use a better way to check the type before casting
-      assert(field->ob_type != NULL);
-      assert(field->ob_type->tp_name != NULL);
-      assert(strcmp(field->ob_type->tp_name, "numpy.ndarray") == 0);
-      PyArrayObject * seq_field = (PyArrayObject *)field;
-      Py_INCREF(seq_field);
-      assert(PyArray_NDIM(seq_field) == 1);
-      assert(PyArray_TYPE(seq_field) == @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()));
-@[    else]@
       PyObject * seq_field = PySequence_Fast(field, "expected a sequence in '@(member.name)'");
       if (!seq_field) {
         Py_DECREF(field);
         return false;
       }
-@[    end if]@
 @[    if isinstance(member.type, AbstractSequence)]@
       Py_ssize_t size = PySequence_Size(field);
       if (-1 == size) {
@@ -332,17 +336,13 @@ nested_type = '__'.join(type_.namespaced_name())
       @primitive_msg_type_to_c(member.type.value_type) * dest = ros_message->@(member.name);
 @[    end if]@
       for (Py_ssize_t i = 0; i < size; ++i) {
-@[    if not isinstance(member.type, Array) or not isinstance(member.type.value_type, BasicType) or member.type.value_type.typename not in SPECIAL_NESTED_BASIC_TYPES]@
         PyObject * item = PySequence_Fast_GET_ITEM(seq_field, i);
         if (!item) {
           Py_DECREF(seq_field);
           Py_DECREF(field);
           return false;
         }
-@[    end if]@
-@[    if isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-        @primitive_msg_type_to_c(member.type.value_type) tmp = *(@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_')) *)PyArray_GETPTR1(seq_field, i);
-@[    elif isinstance(member.type.value_type, BasicType) and member.type.value_type.typename == 'char']@
+@[    if isinstance(member.type.value_type, BasicType) and member.type.value_type.typename == 'char']@
         assert(PyUnicode_Check(item));
         PyObject * encoded_item = PyUnicode_AsUTF8String(item);
         if (!encoded_item) {
@@ -615,7 +615,7 @@ if isinstance(type_, AbstractNestedType):
       PyObject * frombytes = PyObject_GetAttrString(field, "frombytes");
       assert(frombytes != NULL);
       @primitive_msg_type_to_c(member.type.value_type) * src = &(ros_message->@(member.name).data[0]);
-      PyObject * data = PyBytes_FromStringAndSize((const char *)src, ros_message->@(member.name).size * sizeof(@primitive_msg_type_to_c(member.type.value_type)));
+      PyObject * data = PyMemoryView_FromMemory((char *)src, ros_message->@(member.name).size * sizeof(@primitive_msg_type_to_c(member.type.value_type)), PyBUF_READ);
       assert(data != NULL);
       PyObject * ret = PyObject_CallFunctionObjArgs(frombytes, data, NULL);
       Py_DECREF(data);

@@ -39,6 +39,68 @@ from rosidl_parser.definition import UnboundedSequence
 from rosidl_parser.definition import UnboundedString
 
 
+@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
+@pytest.mark.parametrize('check_fields', [False, True])
+@pytest.mark.parametrize('container', [bytes, bytearray])
+def test_uint8_bytes_assignment(message_type, check_fields, container):
+    msg = message_type(check_fields=check_fields)
+    value = container([0, 127, 255])
+    msg.uint8_values = value
+    assert type(msg.uint8_values) is array.array
+    assert msg.uint8_values == array.array('B', value)
+    if isinstance(value, bytearray):
+        value[0] = 42
+        assert msg.uint8_values[0] == 0
+
+
+@pytest.mark.parametrize('container', [bytes, bytearray])
+def test_uint8_bytes_bound(container):
+    msg = BoundedSequences(check_fields=True)
+    with pytest.raises(AssertionError, match='with length <= 3'):
+        msg.uint8_values = container([0, 1, 2, 3])
+
+
+@pytest.mark.parametrize('layout', ['contiguous', 'strided', 'reversed', 'empty'])
+def test_uint8_numpy_assignment(layout):
+    value = numpy.arange(6, dtype=numpy.uint8)
+    if layout == 'strided':
+        value = value[::2]
+    elif layout == 'reversed':
+        value = value[::-1]
+    elif layout == 'empty':
+        value = value[:0]
+    msg = UnboundedSequences(check_fields=False)
+    msg.uint8_values = value
+    assert type(msg.uint8_values) is array.array
+    assert list(msg.uint8_values) == list(value)
+    if value.size:
+        original = msg.uint8_values[0]
+        value[0] = 42
+        assert msg.uint8_values[0] == original
+    msg = UnboundedSequences(check_fields=True)
+    with pytest.raises(AssertionError, match="each value of type 'int'"):
+        msg.uint8_values = value
+
+
+def test_uint8_bytes_subclass_validation():
+    class InvalidBytes(bytes):
+        def __iter__(self):
+            return iter([-1])
+
+    msg = UnboundedSequences(check_fields=True)
+    with pytest.raises(AssertionError, match='each unsigned integer in'):
+        msg.uint8_values = InvalidBytes(b'\x00')
+
+
+@pytest.mark.parametrize('check_fields', [False, True])
+def test_uint8_array_ownership(check_fields):
+    value = array.array('B', [0, 255])
+    msg = UnboundedSequences(check_fields=check_fields)
+    msg.uint8_values = value
+    value[0] = 42
+    assert msg.uint8_values[0] == (42 if check_fields else 0)
+
+
 def test_basic_types():
     msg = BasicTypes(check_fields=True)
 

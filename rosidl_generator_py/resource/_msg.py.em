@@ -58,6 +58,8 @@ for member in message.structure.members:
         elif isinstance(member.type, AbstractSequence):
             member_names = imports.setdefault(
                 'import array', [])
+            if type_.typename == 'uint8':
+                imports.setdefault('import numpy', [])
         else:
             assert False
         member_names.append(member.name)
@@ -436,6 +438,17 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
 
     @@@(member.name).setter@(noqa_string)
     def @(member.name)(self, value):@(noqa_string)
+@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'uint8']@
+        if type(value) in (bytes, bytearray)@(' and len(value) <= %d' % member.type.maximum_size if isinstance(member.type, BoundedSequence) else ''):
+            self._@(member.name) = array.array('B', value)
+            return
+        if (not self._check_fields and type(value) is numpy.ndarray and
+                value.dtype == numpy.uint8 and value.ndim == 1 and value.flags.c_contiguous):
+            data = array.array('B')
+            data.frombytes(memoryview(value))
+            self._@(member.name) = data
+            return
+@[  end if]@
         if self._check_fields:
 @[  if isinstance(member.type, AbstractNestedType) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
 @[    if isinstance(member.type, Array)]@
