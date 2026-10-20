@@ -469,10 +469,15 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
             return
 @[  end if]@
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-        if self._check_fields:
-            assert isinstance(value, bytes), \
-                "The '@(member.name)' field must be of type 'bytes'"
+        if not isinstance(value, bytes):
+            # The previous API assigned lists of one-byte bytes objects.
+            if self._check_fields:
+                assert isinstance(value, (list, tuple)) and all(
+                    isinstance(v, bytes) and len(v) == 1 for v in value), \
+                    "The '@(member.name)' field must be of type 'bytes' or a sequence of one-byte 'bytes'"
+            value = b''.join(value)
 @[    if isinstance(member.type, BoundedSequence)]@
+        if self._check_fields:
             assert len(value) <= @(member.type.maximum_size), \
                 "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
 @[    end if]@

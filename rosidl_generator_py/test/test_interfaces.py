@@ -60,6 +60,25 @@ def test_uint8_bytes_bound(container):
         msg.uint8_values = container([0, 1, 2, 3])
 
 
+@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
+@pytest.mark.parametrize('check_fields', [False, True])
+def test_octet_sequence_list_assignment(message_type, check_fields):
+    msg = message_type(check_fields=check_fields, byte_values=[b'\x00', b'\xff'])
+    assert msg.byte_values == b'\x00\xff'
+    msg.byte_values = (b'a',)
+    assert msg.byte_values == b'a'
+    msg.byte_values = []
+    assert msg.byte_values == b''
+
+
+def test_octet_sequence_list_validation():
+    msg = BoundedSequences(check_fields=True)
+    with pytest.raises(AssertionError):
+        msg.byte_values = [b'ab']
+    with pytest.raises(AssertionError):
+        msg.byte_values = [b'a', b'b', b'c', b'd']
+
+
 @pytest.mark.parametrize('layout', ['contiguous', 'strided', 'reversed', 'empty'])
 def test_uint8_numpy_assignment(layout):
     value = numpy.arange(6, dtype=numpy.uint8)

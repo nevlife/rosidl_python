@@ -18,7 +18,8 @@ field checking is disabled.
 
 `sequence<octet>` (`byte[]`, including bounded sequences) now maps to Python
 `bytes`, with `b''` as its empty default. This is an intentional Python API change:
-assign bytes instead of lists of one-byte bytes objects. Scalar octets and fixed
+reads return bytes instead of lists of one-byte bytes objects. Assigning such a
+list still works; the setter joins it into bytes. Scalar octets and fixed
 arrays of octets retain their previous representation. `uint8[]`, as used by
 Image and PointCloud2, is a different IDL type and retains its normal default
 `array.array` representation.
