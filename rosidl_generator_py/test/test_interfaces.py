@@ -1125,6 +1125,30 @@ def test_numpy_sequence_validation(check_fields):
 
 @pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
 @pytest.mark.parametrize('check_fields', [False, True])
+@pytest.mark.parametrize('value', [
+    bytearray(b'ab'), memoryview(b'ab'), array.array('B', b'ab'),
+    numpy.frombuffer(b'ab', dtype=numpy.uint8), numpy.frombuffer(b'xab', dtype=numpy.uint8)[1:],
+    numpy.frombuffer(b'aXb', dtype=numpy.uint8)[::2],
+])
+def test_octet_sequence_buffer_assignment(message_type, check_fields, value):
+    msg = message_type(check_fields=check_fields, byte_values=value)
+    assert msg.byte_values == b'ab'
+    msg.byte_values = value
+    assert type(msg.byte_values) is bytes
+    assert msg.byte_values == b'ab'
+
+
+def test_octet_sequence_buffer_copy():
+    value = bytearray(b'ab')
+    msg = UnboundedSequences(byte_values=value)
+    value[0] = ord('z')
+    assert msg.byte_values == b'ab'
+    with pytest.raises(AssertionError, match='length <= 3'):
+        BoundedSequences(check_fields=True, byte_values=bytearray(b'abcd'))
+
+
+@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
+@pytest.mark.parametrize('check_fields', [False, True])
 def test_numpy_bool_sequence(message_type, check_fields):
     value = numpy.array([True, False, True], dtype=numpy.bool_)
     msg = message_type(check_fields=check_fields)

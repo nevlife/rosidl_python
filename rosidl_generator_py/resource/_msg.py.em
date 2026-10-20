@@ -50,6 +50,10 @@ for member in message.structure.members:
     if (isinstance(member.type, AbstractSequence) and
             isinstance(type_, BasicType) and type_.typename == 'boolean'):
         imports.setdefault('import numpy', [])
+    if (isinstance(member.type, AbstractSequence) and
+            isinstance(type_, BasicType) and type_.typename == 'octet'):
+        imports.setdefault('import array', [])
+        imports.setdefault('import numpy', [])
     if (
         isinstance(member.type, AbstractNestedType) and
         isinstance(member.type.value_type, BasicType) and
@@ -469,7 +473,9 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
             return
 @[  end if]@
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-        if not isinstance(value, bytes):
+        if isinstance(value, (bytearray, memoryview, array.array, numpy.ndarray)):
+            value = bytes(value)
+        elif not isinstance(value, bytes):
             # The previous API assigned lists of one-byte bytes objects.
             if self._check_fields:
                 assert isinstance(value, (list, tuple)) and all(
