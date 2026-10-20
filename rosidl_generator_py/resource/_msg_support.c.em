@@ -82,10 +82,47 @@ if emit_view_helper:
 }@
 @[if emit_view_helper]@
 
+static int rosidl_generator_py__import_numpy(void)
+{
+#if NPY_ABI_VERSION >= 0x02000000
+  return _import_array();
+#else
+  // NumPy 1.x headers reject the NumPy 2 table, whose slots used here are unchanged.
+  PyObject * module = PyImport_ImportModule("numpy._core._multiarray_umath");
+  if (module == NULL && PyErr_ExceptionMatches(PyExc_ModuleNotFoundError)) {
+    PyErr_Clear();
+    module = PyImport_ImportModule("numpy.core._multiarray_umath");
+  }
+  if (module == NULL) {
+    return -1;
+  }
+  PyObject * capsule = PyObject_GetAttrString(module, "_ARRAY_API");
+  Py_DECREF(module);
+  if (capsule == NULL) {
+    return -1;
+  }
+  PyArray_API = (void **)PyCapsule_GetPointer(capsule, NULL);
+  Py_DECREF(capsule);
+  if (PyArray_API == NULL) {
+    return -1;
+  }
+  if (PyArray_GetNDArrayCVersion() > 0x02000000 ||
+    PyArray_GetNDArrayCFeatureVersion() < NPY_FEATURE_VERSION)
+  {
+    PyErr_Format(
+      PyExc_ImportError, "unsupported NumPy C ABI 0x%x, C API 0x%x",
+      PyArray_GetNDArrayCVersion(), PyArray_GetNDArrayCFeatureVersion());
+    PyArray_API = NULL;
+    return -1;
+  }
+  return 0;
+#endif
+}
+
 static PyObject * rosidl_generator_py__numpy_view(
   void * data, size_t size, int type, PyObject * owner)
 {
-  if (PyArray_API == NULL && _import_array() < 0) {
+  if (PyArray_API == NULL && rosidl_generator_py__import_numpy() < 0) {
     return NULL;
   }
   static const uint64_t empty = 0;

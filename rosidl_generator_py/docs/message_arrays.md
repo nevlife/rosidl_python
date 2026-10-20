@@ -57,8 +57,11 @@ copy into the taken C message or the Python-to-C copy on publish. Keeping a tiny
 slice retains the entire C message, so applications should copy small selections
 when they otherwise hold a large message for a long time. Direct C API view
 construction avoids a Python function call and buffer wrapper for each array.
-Build generated extensions against NumPy 2 headers to support both NumPy 1.26
-and NumPy 2 runtimes.
+Extensions built against NumPy 1.26 or NumPy 2 headers run with both NumPy 1.26
+and NumPy 2 runtimes. With NumPy 1.x headers the converter loads the NumPy C API
+table itself, because the stock `_import_array()` rejects the NumPy 2 ABI. The
+table slots it uses (`PyArray_New`, `PyArray_SetBaseObject`, `PyArray_Type`) and
+the `PyArrayObject` fields it reads are the same in both ABIs.
 
 Consumers that mutate incoming buffers need an explicit copy. In particular,
 `sensor_msgs_py.point_cloud2.read_points` in this checkout swaps a foreign-endian
