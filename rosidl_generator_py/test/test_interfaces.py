@@ -1111,16 +1111,55 @@ def test_typed_numpy_sequence(message_type, check_fields, field, dtype, layout):
         assert list(getattr(msg, field)) == expected
 
 
-@pytest.mark.parametrize('check_fields', [False, True])
-def test_numpy_sequence_validation(check_fields):
-    msg = BoundedSequences(check_fields=check_fields)
-    for value in [numpy.zeros(4, dtype=numpy.uint8),
-                  numpy.zeros((1, 3), dtype=numpy.uint8),
-                  numpy.zeros(3, dtype=numpy.int8)]:
-        with pytest.raises(AssertionError):
-            msg.uint8_values = value
+def test_numpy_sequence_validation():
+    msg = BoundedSequences(check_fields=True)
     with pytest.raises(AssertionError):
-        msg.float64_values = numpy.zeros(3, dtype='>f8')
+        msg.uint8_values = numpy.zeros(4, dtype=numpy.uint8)
+    with pytest.raises(AssertionError):
+        msg.uint8_values = numpy.array([-1, 0], dtype=numpy.int8)
+    with pytest.raises(AssertionError):
+        msg.int8_values = numpy.array([1.5])
+    with pytest.raises(AssertionError):
+        msg.float32_values = numpy.array([1, 2])
+    for check_fields in (False, True):
+        msg = BoundedSequences(check_fields=check_fields)
+        with pytest.raises(TypeError):
+            msg.uint8_values = numpy.zeros((1, 3), dtype=numpy.uint8)
+        with pytest.raises(TypeError):
+            msg.bool_values = numpy.zeros((1, 3), dtype=numpy.bool_)
+
+
+@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
+@pytest.mark.parametrize('check_fields', [False, True])
+@pytest.mark.parametrize('field,value,expected', [
+    ('float32_values', numpy.array([1.5, 2.5]), [1.5, 2.5]),
+    ('float32_values', numpy.array([1.5], dtype='>f4'), [1.5]),
+    ('float64_values', numpy.array([0.5], dtype=numpy.float32), [0.5]),
+    ('float64_values', numpy.array([1.5, -2.0], dtype='>f8'), [1.5, -2.0]),
+    ('int8_values', numpy.array([1, -2]), [1, -2]),
+    ('uint8_values', numpy.array([0, 255], dtype=numpy.int64), [0, 255]),
+    ('uint16_values', numpy.array([7], dtype=numpy.uint8), [7]),
+    ('int64_values', numpy.array([-3], dtype=numpy.int32), [-3]),
+])
+def test_numpy_sequence_conversion(message_type, check_fields, field, value, expected):
+    msg = message_type(check_fields=check_fields)
+    setattr(msg, field, value)
+    assert type(getattr(msg, field)) is array.array
+    assert list(getattr(msg, field)) == expected
+
+
+def test_numpy_sequence_conversion_unchecked():
+    msg = UnboundedSequences(check_fields=False)
+    msg.float32_values = numpy.array([1, 2])
+    assert list(msg.float32_values) == [1.0, 2.0]
+    msg.float32_values = numpy.array([1e39])
+    assert list(msg.float32_values) == [math.inf]
+    with pytest.raises(OverflowError):
+        msg.int8_values = numpy.array([300])
+    with pytest.raises(OverflowError):
+        msg.uint16_values = numpy.array([-1])
+    with pytest.raises(TypeError):
+        msg.int8_values = numpy.array([1.5])
 
 
 @pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])

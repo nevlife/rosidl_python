@@ -463,14 +463,18 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
     def @(member.name)(self, value):@(noqa_string)
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'boolean']@
         if isinstance(value, numpy.ndarray):
-            assert value.dtype == numpy.bool_ and value.ndim == 1, \
-                "The '@(member.name)' numpy.ndarray() must be one-dimensional with dtype bool"
+            if value.ndim != 1:
+                raise TypeError("The '@(member.name)' numpy.ndarray() must be one-dimensional")
+            is_bool = value.dtype == numpy.bool_
+            value = value.tolist()
+            if is_bool:
 @[    if isinstance(member.type, BoundedSequence)]@
-            assert value.size <= @(member.type.maximum_size), \
-                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
+                if self._check_fields:
+                    assert len(value) <= @(member.type.maximum_size), \
+                        "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
 @[    end if]@
-            self._@(member.name) = value.tolist()
-            return
+                self._@(member.name) = value
+                return
 @[  end if]@
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
         if isinstance(value, (bytearray, memoryview, array.array, numpy.ndarray)):
@@ -496,18 +500,21 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
             return
 @[    end if]@
         if isinstance(value, numpy.ndarray):
-            assert value.dtype == @(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype']), \
-                "The '@(member.name)' numpy.ndarray() must have the dtype of '@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype'])'"
-            assert value.ndim == 1, \
-                "The '@(member.name)' numpy.ndarray() must be one-dimensional"
+            if value.ndim != 1:
+                raise TypeError("The '@(member.name)' numpy.ndarray() must be one-dimensional")
+            if value.dtype != @(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype']):
+                # Same value conversion and checks as a list of the elements.
+                value = value.tolist()
+            else:
 @[    if isinstance(member.type, BoundedSequence)]@
-            assert value.size <= @(member.type.maximum_size), \
-                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
+                if self._check_fields:
+                    assert value.size <= @(member.type.maximum_size), \
+                        "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
 @[    end if]@
-            data = array.array('@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['type_code'])')
-            data.frombytes(memoryview(numpy.ascontiguousarray(value)).cast('B'))
-            self._@(member.name) = data
-            return
+                data = array.array('@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['type_code'])')
+                data.frombytes(memoryview(numpy.ascontiguousarray(value)).cast('B'))
+                self._@(member.name) = data
+                return
         if (isinstance(value, array.array) and
                 value.typecode == '@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['type_code'])'@(' and len(value) <= %d' % member.type.maximum_size if isinstance(member.type, BoundedSequence) else '')):
             self._@(member.name) = value if self._check_fields else array.array(value.typecode, value)

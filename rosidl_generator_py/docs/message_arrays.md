@@ -7,14 +7,16 @@ signatures. C message structures and wire formats are unchanged.
 ## Assigning arrays
 
 Numeric sequence setters accept native-endian, one-dimensional NumPy arrays with
-the exact ROS dtype. They validate dtype, dimensions, and bounded-sequence length
-without visiting each element. Contiguous inputs copy once into `array.array`;
-strided/reversed inputs first become contiguous. NumPy boolean sequences use
-`tolist()` and keep their existing list representation. Correctly typed
-`array.array` inputs and `bytes`/`bytearray` for `uint8[]` keep their fast paths.
-Ordinary Python sequences retain their existing element/range checks when field
-checking is enabled. Invalid typed NumPy buffers are rejected even when ordinary
-field checking is disabled.
+the exact ROS dtype without visiting each element. With field checking enabled
+they also check the bounded-sequence length. Contiguous inputs copy once into
+`array.array`; strided/reversed inputs first become contiguous. NumPy arrays of
+another dtype or byte order go through `tolist()` and then the same conversion and
+checks as a list, so a float64 array assigned to `float32[]` stores the converted
+values, as stock Jazzy does. Arrays with more than one dimension raise
+`TypeError`. NumPy boolean sequences use `tolist()` and keep their existing list
+representation. Correctly typed `array.array` inputs and `bytes`/`bytearray` for
+`uint8[]` keep their fast paths. Ordinary Python sequences retain their existing
+element/range checks when field checking is enabled.
 
 `sequence<octet>` (`byte[]`, including bounded sequences) now maps to Python
 `bytes`, with `b''` as its empty default. This is an intentional Python API change:
