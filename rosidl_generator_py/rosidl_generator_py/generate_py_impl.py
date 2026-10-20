@@ -171,6 +171,9 @@ def generate_py(generator_arguments_file, typesupport_impls):
         type_support_impl_by_filename.keys(),
     }
 
+    mapping_msg_pkg_extension[os.path.join(template_dir, '_idl_pkg_bases.c.em')] = [
+        '_%s_bases.c']
+
     for template_file in mapping_msg_pkg_extension.keys():
         assert os.path.exists(template_file), 'Could not find template: ' + template_file
 
@@ -200,6 +203,10 @@ def value_to_py(type_, value, array_as_tuple=False):
 
     if not isinstance(type_, AbstractNestedType):
         return primitive_value_to_py(type_, value)
+
+    if (isinstance(type_, AbstractSequence) and
+            isinstance(type_.value_type, BasicType) and type_.value_type.typename == 'octet'):
+        return repr(bytes(literal_eval(value)))
 
     py_values = []
     for single_value in literal_eval(value):

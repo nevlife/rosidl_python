@@ -47,6 +47,9 @@ for member in message.structure.members:
     if isinstance(type_, BasicType) and type_.typename in FLOATING_POINT_TYPES:
         imports.setdefault(
             'import math', [])  # used for math.isinf
+    if (isinstance(member.type, AbstractSequence) and
+            isinstance(type_, BasicType) and type_.typename == 'boolean'):
+        imports.setdefault('import numpy', [])
     if (
         isinstance(member.type, AbstractNestedType) and
         isinstance(member.type.value_type, BasicType) and
@@ -58,11 +61,11 @@ for member in message.structure.members:
         elif isinstance(member.type, AbstractSequence):
             member_names = imports.setdefault(
                 'import array', [])
-            if type_.typename == 'uint8':
-                imports.setdefault('import numpy', [])
+            imports.setdefault('import numpy', [])
         else:
             assert False
         member_names.append(member.name)
+imports.setdefault(f'import {package_name}._{package_name}_bases as _bases', [])
 }@
 @#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 @
@@ -96,6 +99,7 @@ class Metaclass_@(message.structure.namespaced_type.name)(type):
     _CREATE_ROS_MESSAGE = None
     _CONVERT_FROM_PY = None
     _CONVERT_TO_PY = None
+    _CONVERT_TO_PY_WITH_OWNER = None
     _DESTROY_ROS_MESSAGE = None
     _TYPE_SUPPORT = None
 
@@ -104,6 +108,20 @@ class Metaclass_@(message.structure.namespaced_type.name)(type):
         '@(constant.name)': @constant_value_to_py(constant.type, constant.value),
 @[end for]@
     }
+
+    def __new__(cls, name, bases, namespace, **kwargs):
+        message_type = super().__new__(cls, name, bases, namespace, **kwargs)
+        # Retain slot metadata for tools and pickle; storage lives in the native base.
+        if name == '@(message.structure.namespaced_type.name)':
+            message_type.__slots__ = [
+@[for member in message.structure.members]@
+@[  if member.name != EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
+                '_@(member.name)',
+@[  end if]@
+@[end for]@
+                '_check_fields',
+            ]
+        return message_type
 
     @@classmethod
     def __import_type_support__(cls):
@@ -125,6 +143,7 @@ suffix = '__'.join(message.structure.namespaced_type.namespaces[1:]) + '__' + co
             cls._CREATE_ROS_MESSAGE = module.create_ros_message_msg__@(suffix)
             cls._CONVERT_FROM_PY = module.convert_from_py_msg__@(suffix)
             cls._CONVERT_TO_PY = module.convert_to_py_msg__@(suffix)
+            cls._CONVERT_TO_PY_WITH_OWNER = module.convert_to_py_with_owner_msg__@(suffix)
             cls._TYPE_SUPPORT = module.type_support_msg__@(suffix)
             cls._DESTROY_ROS_MESSAGE = module.destroy_ros_message_msg__@(suffix)
 @{
@@ -190,7 +209,7 @@ for member in message.structure.members:
 @[end for]@
 
 
-class @(message.structure.namespaced_type.name)(metaclass=Metaclass_@(message.structure.namespaced_type.name)):
+class @(message.structure.namespaced_type.name)(_bases.@('__'.join(message.structure.namespaced_type.namespaced_name()[1:]))Base, metaclass=Metaclass_@(message.structure.namespaced_type.name)):
 @[if not message.constants]@
     """Message class '@(message.structure.namespaced_type.name)'."""
 @[else]@
@@ -204,15 +223,7 @@ class @(message.structure.namespaced_type.name)(metaclass=Metaclass_@(message.st
     """
 @[end if]@
 
-    __slots__ = [
-@[for member in message.structure.members]@
-@[  if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
-@[    continue]@
-@[  end if]@
-        '_@(member.name)',
-@[end for]@
-        '_check_fields',
-    ]
+    __slots__ = ()
 
     _fields_and_field_types = {
 @[for member in message.structure.members]@
@@ -353,8 +364,14 @@ if isinstance(type_, AbstractNestedType):
 @[        end if]@
 @[      end if]@
 @[    elif isinstance(member.type, AbstractSequence)]@
-@[      if isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-        self.@(member.name) = array.array('@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['type_code'])', kwargs.get('@(member.name)', []))
+@[      if isinstance(type_, BasicType) and type_.typename == 'octet']@
+        self.@(member.name) = kwargs.get('@(member.name)', b'')
+@[      elif isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
+        value = kwargs.get(
+            '@(member.name)', array.array('@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['type_code'])'))
+        if self._check_fields and '@(member.name)' in kwargs and isinstance(value, array.array):
+            value = array.array(value.typecode, value)
+        self.@(member.name) = value
 @[      else]@
         self.@(member.name) = kwargs.get('@(member.name)', [])
 @[      end if]@
@@ -384,7 +401,9 @@ if isinstance(type_, AbstractNestedType):
                 isinstance(t.value_type, rosidl_parser.definition.BasicType) and
                 t.value_type.typename in @([*SPECIAL_NESTED_BASIC_TYPES])
             ):
-                if len(field) == 0:
+                if hasattr(field, 'tolist'):
+                    fieldstr = repr(field.tolist())
+                elif len(field) == 0:
                     fieldstr = '[]'
                 else:
                     if self._check_fields:
@@ -402,8 +421,8 @@ if isinstance(type_, AbstractNestedType):
 @[  if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[    continue]@
 @[  end if]@
-@[  if isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-        if any(self.@(member.name) != other.@(member.name)):
+@[  if isinstance(member.type, AbstractNestedType) and isinstance(member.type.value_type, BasicType) and (member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or (isinstance(member.type, AbstractSequence) and member.type.value_type.typename == 'boolean'))]@
+        if not numpy.array_equal(self.@(member.name), other.@(member.name)):
 @[  else]@
         if self.@(member.name) != other.@(member.name):
 @[  end if]@
@@ -438,15 +457,49 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
 
     @@@(member.name).setter@(noqa_string)
     def @(member.name)(self, value):@(noqa_string)
-@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'uint8']@
+@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'boolean']@
+        if isinstance(value, numpy.ndarray):
+            assert value.dtype == numpy.bool_ and value.ndim == 1, \
+                "The '@(member.name)' numpy.ndarray() must be one-dimensional with dtype bool"
+@[    if isinstance(member.type, BoundedSequence)]@
+            assert value.size <= @(member.type.maximum_size), \
+                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
+@[    end if]@
+            self._@(member.name) = value.tolist()
+            return
+@[  end if]@
+@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
+        if self._check_fields:
+            assert isinstance(value, bytes), \
+                "The '@(member.name)' field must be of type 'bytes'"
+@[    if isinstance(member.type, BoundedSequence)]@
+            assert len(value) <= @(member.type.maximum_size), \
+                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
+@[    end if]@
+        self._@(member.name) = value
+        return
+@[  elif isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename in SPECIAL_NESTED_BASIC_TYPES]@
+@[    if type_.typename == 'uint8']@
         if type(value) in (bytes, bytearray)@(' and len(value) <= %d' % member.type.maximum_size if isinstance(member.type, BoundedSequence) else ''):
             self._@(member.name) = array.array('B', value)
             return
-        if (not self._check_fields and type(value) is numpy.ndarray and
-                value.dtype == numpy.uint8 and value.ndim == 1 and value.flags.c_contiguous):
-            data = array.array('B')
-            data.frombytes(memoryview(value))
+@[    end if]@
+        if isinstance(value, numpy.ndarray):
+            assert value.dtype == @(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype']), \
+                "The '@(member.name)' numpy.ndarray() must have the dtype of '@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype'])'"
+            assert value.ndim == 1, \
+                "The '@(member.name)' numpy.ndarray() must be one-dimensional"
+@[    if isinstance(member.type, BoundedSequence)]@
+            assert value.size <= @(member.type.maximum_size), \
+                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
+@[    end if]@
+            data = array.array('@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['type_code'])')
+            data.frombytes(memoryview(numpy.ascontiguousarray(value)).cast('B'))
             self._@(member.name) = data
+            return
+        if (isinstance(value, array.array) and
+                value.typecode == '@(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['type_code'])'@(' and len(value) <= %d' % member.type.maximum_size if isinstance(member.type, BoundedSequence) else '')):
+            self._@(member.name) = value if self._check_fields else array.array(value.typecode, value)
             return
 @[  end if]@
         if self._check_fields:

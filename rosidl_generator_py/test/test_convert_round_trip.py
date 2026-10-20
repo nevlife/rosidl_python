@@ -138,9 +138,9 @@ def _capsule(message_type: type, function: str) -> Any:
     return getattr(typesupport, '{}_msg__{}'.format(function, suffix))
 
 
-def _round_trip(message: Any) -> Any:
+def _round_trip(message: Any, message_type: Optional[type] = None) -> Any:
     """Send a message through convert_from_py and convert_to_py and back."""
-    message_type = type(message)
+    message_type = message_type or type(message)
 
     def pointer(name: str) -> int:
         return _PyCapsule_GetPointer(_capsule(message_type, name), None)
@@ -206,6 +206,9 @@ def _field_value(slot_type: Any, seed: int) -> Any:
         if isinstance(slot_type, Array):
             return numpy.array(values, dtype=dtype)
         return array.array(type_code, values)
+    if (isinstance(slot_type, AbstractSequence) and
+            isinstance(value_type, BasicType) and value_type.typename == 'octet'):
+        return b''.join(values)
     return values
 
 
@@ -337,3 +340,118 @@ def test_every_slot_is_assigned(message_type: type) -> None:
     """Every declared slot is populated, including _check_fields."""
     converted = _round_trip(_populate(message_type()))
     assert _unset_slots(converted) == []
+
+
+@pytest.mark.parametrize('message_type', [Arrays, UnboundedSequences, MultiNested])
+def test_owned_array_views(message_type):
+    """Extracted and nested views retain C storage after the message is deleted."""
+    import gc
+    from pathlib import Path
+    import weakref
+
+    runtime_path = str(Path(__file__).parents[1] / 'rosidl_generator_py')
+    importlib.import_module('rosidl_generator_py').__path__.append(runtime_path)
+
+    def pointer(name):
+        return _PyCapsule_GetPointer(_capsule(message_type, name), None)
+
+    create = ctypes.PYFUNCTYPE(ctypes.c_void_p)(pointer('create_ros_message'))
+    destroy = ctypes.PYFUNCTYPE(None, ctypes.c_void_p)(pointer('destroy_ros_message'))
+    from_py = ctypes.PYFUNCTYPE(
+        ctypes.c_bool, ctypes.py_object, ctypes.c_void_p)(pointer('convert_from_py'))
+    to_py = ctypes.PYFUNCTYPE(
+        ctypes.py_object, ctypes.c_void_p, ctypes.py_object)(pointer('convert_to_py_with_owner'))
+    raw = create()
+    owner = type('Owner', (), {})()
+    finalized = weakref.finalize(owner, destroy, raw)
+    original = _populate(message_type())
+    assert from_py(original, raw)
+    converted = to_py(raw, owner)
+    views = []
+
+    def collect(message, expected, buffer_owner, array_views):
+        for name, slot_type in zip(message.get_fields_and_field_types(), message.SLOT_TYPES):
+            field = getattr(message, name)
+            reference = getattr(expected, name)
+            if (isinstance(slot_type, (Array, AbstractSequence)) and
+                    isinstance(slot_type.value_type, BasicType) and
+                    (slot_type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or
+                     (isinstance(slot_type, AbstractSequence) and
+                      slot_type.value_type.typename == 'boolean'))):
+                assert isinstance(field, numpy.ndarray)
+                assert not field.flags.owndata
+                assert not field.flags.writeable
+                assert field.base is buffer_owner
+                assert numpy.array_equal(field, reference)
+                with pytest.raises(ValueError):
+                    field.setflags(write=True)
+                array_views.append((field[::2], list(reference)[::2]))
+            elif isinstance(slot_type, (Array, AbstractSequence)) and isinstance(
+                    slot_type.value_type, NamespacedType):
+                for item, expected_item in zip(field, reference):
+                    collect(item, expected_item, buffer_owner, array_views)
+            elif isinstance(slot_type, NamespacedType):
+                collect(field, reference, buffer_owner, array_views)
+
+    collect(converted, original, owner, views)
+    assert converted == original
+    repr(converted)
+    del converted, owner
+    gc.collect()
+    assert finalized.alive
+    for view, expected in views:
+        assert list(view) == expected
+    del view, views
+    gc.collect()
+    assert not finalized.alive
+
+
+@pytest.mark.parametrize('message_type', MESSAGE_TYPES, ids=[t.__name__ for t in MESSAGE_TYPES])
+def test_message_pickle_and_native_lifetime(message_type):
+    """Native bases preserve pickle, subclass storage, and cyclic garbage collection."""
+    import gc
+    import pickle
+    import sys
+    import weakref
+
+    original = _populate(message_type())
+    assert pickle.loads(pickle.dumps(original)) == original
+    assert gc.is_tracked(original)
+    with pytest.raises(AttributeError):
+        original.unknown_field = 1
+
+    class Derived(message_type):
+        __slots__ = ()
+
+    assert _round_trip(Derived(), message_type) == message_type()
+    gc.collect()
+    before = sys.getrefcount(message_type)
+    for _ in range(1000):
+        message_type()
+    gc.collect()
+    assert sys.getrefcount(message_type) == before
+
+    witness = type('Witness', (), {})()
+    reference = weakref.ref(witness)
+    cycle = UnboundedSequences(check_fields=False)
+    cycle.string_values = [cycle, witness]
+    del cycle, witness
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize('message_type,owned', [
+    (Strings, False), (BasicTypes, False), (Empty, False),
+    (Arrays, True), (UnboundedSequences, True), (Nested, True),
+])
+def test_conversion_capsule_context(message_type, owned):
+    """Keep legacy capsule pointers while advertising the optional owned conversion."""
+    get_context = ctypes.pythonapi.PyCapsule_GetContext
+    get_context.restype = ctypes.c_void_p
+    get_context.argtypes = [ctypes.py_object]
+    context = get_context(_capsule(message_type, 'convert_to_py'))
+    if owned:
+        assert context == _PyCapsule_GetPointer(
+            _capsule(message_type, 'convert_to_py_with_owner'), None)
+    else:
+        assert context is None

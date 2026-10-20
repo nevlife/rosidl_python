@@ -52,6 +52,8 @@ ROSIDL_GENERATOR_C_IMPORT
 bool @('__'.join(message.structure.namespaced_type.namespaces + [module_name]))__convert_from_py(PyObject * _pymsg, void * ros_message);
 ROSIDL_GENERATOR_C_IMPORT
 PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [module_name]))__convert_to_py(void * raw_ros_message);
+ROSIDL_GENERATOR_C_IMPORT
+PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [module_name]))__convert_to_py_with_owner(void * raw_ros_message, PyObject * owner);
 
 
 ROSIDL_GENERATOR_C_IMPORT
@@ -67,7 +69,20 @@ int8_t
 {
   int8_t err;
 @{
-function_names = ['create_ros_message', 'destroy_ros_message', 'convert_from_py', 'convert_to_py', 'type_support']
+from rosidl_generator_py.generate_py_impl import SPECIAL_NESTED_BASIC_TYPES
+from rosidl_parser.definition import AbstractNestedType
+from rosidl_parser.definition import AbstractSequence
+from rosidl_parser.definition import BasicType
+from rosidl_parser.definition import NamespacedType
+has_view_fields = False
+for m in message.structure.members:
+    t = m.type.value_type if isinstance(m.type, AbstractNestedType) else m.type
+    if (isinstance(t, NamespacedType) or
+            (isinstance(m.type, AbstractNestedType) and isinstance(t, BasicType) and
+             (t.typename in SPECIAL_NESTED_BASIC_TYPES or
+              (isinstance(m.type, AbstractSequence) and t.typename == 'boolean')))):
+        has_view_fields = True
+function_names = ['create_ros_message', 'destroy_ros_message', 'convert_from_py', 'convert_to_py', 'convert_to_py_with_owner', 'type_support']
 }@
 @[for function_name in function_names]@
 
@@ -83,6 +98,11 @@ function_names = ['create_ros_message', 'destroy_ros_message', 'convert_from_py'
     // previously added objects will be removed when the module is destroyed
     return -1;
   }
+@[    if function_name == 'convert_to_py' and has_view_fields]@
+  PyCapsule_SetContext(
+    pyobject_convert_to_py,
+    (void *)&@('__'.join(message.structure.namespaced_type.namespaces + [module_name]))__convert_to_py_with_owner);
+@[    end if]@
   err = PyModule_AddObject(
     pymodule,
     "@(function_name)_msg__@('__'.join(message.structure.namespaced_type.namespaces[1:] + [module_name]))",

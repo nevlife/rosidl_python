@@ -50,6 +50,8 @@ foreach(_abs_idl_file ${rosidl_generate_interfaces_ABS_IDL_FILES})
     "${_output_path}/${_parent_folder}/_${_module_name}_s.c")
 endforeach()
 
+set(_generated_c_base_files "${_output_path}/_${PROJECT_NAME}_bases.c")
+
 file(MAKE_DIRECTORY "${_output_path}")
 file(WRITE "${_output_path}/__init__.py" "")
 
@@ -92,6 +94,8 @@ set(target_dependencies
   ${rosidl_generator_py_GENERATOR_FILES}
   "${rosidl_generator_py_TEMPLATE_DIR}/_action_pkg_typesupport_entry_point.c.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_action.py.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_idl_pkg_bases.c.em"
+  "${rosidl_generator_py_TEMPLATE_DIR}/_msg_native.h.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_idl_pkg_typesupport_entry_point.c.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_idl_support.c.em"
   "${rosidl_generator_py_TEMPLATE_DIR}/_idl.py.em"
@@ -133,7 +137,7 @@ file(WRITE "${_subdir}/CMakeLists.txt" "${_custom_command}")
 add_subdirectory("${_subdir}" ${rosidl_generate_interfaces_TARGET}${_target_suffix})
 set_property(
   SOURCE
-  ${_generated_extension_files} ${_generated_py_files} ${_generated_c_files}
+  ${_generated_extension_files} ${_generated_py_files} ${_generated_c_files} ${_generated_c_base_files}
   PROPERTY GENERATED 1)
 
 set(_target_name_lib "${rosidl_generate_interfaces_TARGET}__rosidl_generator_py")
@@ -164,6 +168,20 @@ endif()
 
 rosidl_get_typesupport_target(c_typesupport_target "${rosidl_generate_interfaces_TARGET}" "rosidl_typesupport_c")
 target_link_libraries(${_target_name_lib} PRIVATE ${c_typesupport_target})
+
+set(_target_name_bases "${PROJECT_NAME}__python_bases")
+python3_add_library(${_target_name_bases} MODULE ${_generated_c_base_files})
+add_dependencies(${_target_name_bases} ${rosidl_generate_interfaces_TARGET}${_target_suffix})
+target_link_libraries(${_target_name_bases} PRIVATE Python3::Python)
+set_target_properties(${_target_name_bases} PROPERTIES
+  COMPILE_OPTIONS "${_extension_compile_flags}"
+  OUTPUT_NAME "_${PROJECT_NAME}_bases"
+  LIBRARY_OUTPUT_DIRECTORY ${_output_path}
+  RUNTIME_OUTPUT_DIRECTORY ${_output_path})
+if(NOT rosidl_generate_interfaces_SKIP_INSTALL)
+  install(TARGETS ${_target_name_bases}
+    DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
+endif()
 
 foreach(_typesupport_impl ${_typesupport_impls})
   find_package(${_typesupport_impl} REQUIRED)
