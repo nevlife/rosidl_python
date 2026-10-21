@@ -12,18 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-import traceback
-
 from .import_type_support_impl import import_type_support
 
 __all__ = ['import_type_support']
 
-try:
-    from .generate_py_impl import generate_py
-    assert generate_py
-    __all__.append('generate_py')
-except ImportError:
-    logger = logging.getLogger('rosidl_generator_py')
-    logger.debug(
-        'Failed to import modules for generating Python structures:\n' + traceback.format_exc())
+
+def __getattr__(name):
+    # Every generated message module imports this package for import_type_support; the
+    # generator pulls in the IDL parser and the templating engine, so load it on first use.
+    if name == 'generate_py':
+        from .generate_py_impl import generate_py
+        return generate_py
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
