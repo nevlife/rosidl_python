@@ -47,13 +47,15 @@ for member in message.structure.members:
     if isinstance(type_, BasicType) and type_.typename in FLOATING_POINT_TYPES:
         imports.setdefault(
             'import math', [])  # used for math.isinf
+    # Sequences accept numpy arrays without importing numpy: an ndarray exists only once
+    # numpy is in sys.modules, and importing it costs every process that imports the message.
     if (isinstance(member.type, AbstractSequence) and
             isinstance(type_, BasicType) and type_.typename == 'boolean'):
-        imports.setdefault('import numpy', [])
+        imports.setdefault('import sys', [])
     if (isinstance(member.type, AbstractSequence) and
             isinstance(type_, BasicType) and type_.typename == 'octet'):
         imports.setdefault('import array', [])
-        imports.setdefault('import numpy', [])
+        imports.setdefault('import sys', [])
     if (
         isinstance(member.type, AbstractNestedType) and
         isinstance(member.type.value_type, BasicType) and
@@ -65,7 +67,7 @@ for member in message.structure.members:
         elif isinstance(member.type, AbstractSequence):
             member_names = imports.setdefault(
                 'import array', [])
-            imports.setdefault('import numpy', [])
+            imports.setdefault('import sys', [])
         else:
             assert False
         member_names.append(member.name)
@@ -421,12 +423,28 @@ if isinstance(type_, AbstractNestedType):
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
+@{
+compares_sequences_with_numpy = False
+for m in message.structure.members:
+    if (
+        isinstance(m.type, AbstractSequence) and isinstance(m.type.value_type, BasicType) and
+        (m.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or
+         m.type.value_type.typename == 'boolean')
+    ):
+        compares_sequences_with_numpy = True
+}@
+@[if compares_sequences_with_numpy]@
+        numpy = sys.modules.get('numpy')
+@[end if]@
 @[for member in message.structure.members]@
 @[  if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[    continue]@
 @[  end if]@
-@[  if isinstance(member.type, AbstractNestedType) and isinstance(member.type.value_type, BasicType) and (member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or (isinstance(member.type, AbstractSequence) and member.type.value_type.typename == 'boolean'))]@
+@[  if isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
         if not numpy.array_equal(self.@(member.name), other.@(member.name)):
+@[  elif isinstance(member.type, AbstractSequence) and isinstance(member.type.value_type, BasicType) and (member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or member.type.value_type.typename == 'boolean')]@
+        if (self.@(member.name) != other.@(member.name) if numpy is None else
+                not numpy.array_equal(self.@(member.name), other.@(member.name))):
 @[  else]@
         if self.@(member.name) != other.@(member.name):
 @[  end if]@
@@ -462,7 +480,8 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
     @@@(member.name).setter@(noqa_string)
     def @(member.name)(self, value):@(noqa_string)
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'boolean']@
-        if isinstance(value, numpy.ndarray):
+        numpy = sys.modules.get('numpy')
+        if numpy is not None and isinstance(value, numpy.ndarray):
             if value.ndim != 1:
                 raise TypeError("The '@(member.name)' numpy.ndarray() must be one-dimensional")
             is_bool = value.dtype == numpy.bool_
@@ -477,9 +496,12 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
                 return
 @[  end if]@
 @[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-        if isinstance(value, (bytearray, memoryview, array.array, numpy.ndarray)):
+        if isinstance(value, bytes):
+            pass
+        elif isinstance(value, (bytearray, memoryview, array.array)) or (
+                'numpy' in sys.modules and isinstance(value, sys.modules['numpy'].ndarray)):
             value = bytes(value)
-        elif not isinstance(value, bytes):
+        else:
             # The previous API assigned lists of one-byte bytes objects.
             if self._check_fields:
                 assert isinstance(value, (list, tuple)) and all(
@@ -499,7 +521,8 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
             self._@(member.name) = array.array('B', value)
             return
 @[    end if]@
-        if isinstance(value, numpy.ndarray):
+        numpy = sys.modules.get('numpy')
+        if numpy is not None and isinstance(value, numpy.ndarray):
             if value.ndim != 1:
                 raise TypeError("The '@(member.name)' numpy.ndarray() must be one-dimensional")
             if value.dtype != @(SPECIAL_NESTED_BASIC_TYPES[type_.typename]['dtype']):

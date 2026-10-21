@@ -1204,3 +1204,26 @@ def test_numeric_constructor_owns_array(check_fields):
     msg = UnboundedSequences(check_fields=check_fields, uint8_values=value)
     value[0] = 42
     assert msg.uint8_values[0] == 0
+
+
+@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
+def test_sequences_without_numpy(message_type):
+    module = sys.modules[message_type.__module__]
+    with open(module.__file__) as f:
+        assert 'import numpy' not in f.read()
+    saved = sys.modules.pop('numpy')
+    try:
+        sys.modules['numpy'] = None
+        msg = message_type(check_fields=True)
+        msg.byte_values = bytearray(b'ab')
+        msg.bool_values = [True, False]
+        msg.uint8_values = [1, 2]
+        msg.float64_values = array.array('d', [1.5])
+        other = message_type(
+            check_fields=True, byte_values=b'ab', bool_values=[True, False],
+            uint8_values=b'\x01\x02', float64_values=[1.5])
+        assert msg == other
+        other.float64_values = [2.5]
+        assert msg != other
+    finally:
+        sys.modules['numpy'] = saved
