@@ -131,7 +131,15 @@ static PyObject * rosidl_generator_py__numpy_view(
   if (field == NULL) {
     return NULL;
   }
-  PyArray_CLEARFLAGS((PyArrayObject *)field, NPY_ARRAY_WRITEABLE);
+  // An owner that exports a writable buffer, such as a publisher loan, gets writable views,
+  // the rule NumPy applies to the bases of its own arrays.
+  Py_buffer buffer;
+  if (PyObject_CheckBuffer(owner) && PyObject_GetBuffer(owner, &buffer, PyBUF_WRITABLE) == 0) {
+    PyBuffer_Release(&buffer);
+  } else {
+    PyErr_Clear();
+    PyArray_CLEARFLAGS((PyArrayObject *)field, NPY_ARRAY_WRITEABLE);
+  }
   Py_INCREF(owner);
   if (PyArray_SetBaseObject((PyArrayObject *)field, owner) < 0) {
     Py_DECREF(field);
@@ -379,7 +387,9 @@ nested_type = '__'.join(type_.namespaced_name())
     assert(PyArray_NDIM(seq_field) == 1);
     assert(PyArray_TYPE(seq_field) == @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()));
     @primitive_msg_type_to_c(member.type.value_type) * dest = ros_message->@(member.name);
-    if (PyArray_IS_C_CONTIGUOUS(seq_field)) {
+    if (PyArray_DATA(seq_field) == (void *)dest) {
+      // A view of this message's own buffer, as in a publisher loan, already holds the values.
+    } else if (PyArray_IS_C_CONTIGUOUS(seq_field)) {
       memcpy(dest, PyArray_DATA(seq_field), @(member.type.size) * sizeof(*dest));
     } else {
       for (Py_ssize_t i = 0; i < @(member.type.size); ++i) {

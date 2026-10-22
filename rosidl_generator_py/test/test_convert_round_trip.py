@@ -406,6 +406,41 @@ def test_owned_array_views(message_type):
     assert not finalized.alive
 
 
+def test_views_of_a_writable_owner_write_through():
+    """An owner exporting a writable buffer, like a publisher loan, gets writable views."""
+    from pathlib import Path
+
+    runtime_path = str(Path(__file__).parents[1] / 'rosidl_generator_py')
+    importlib.import_module('rosidl_generator_py').__path__.append(runtime_path)
+
+    def function(name, *signature):
+        return ctypes.PYFUNCTYPE(*signature)(_PyCapsule_GetPointer(_capsule(Arrays, name), None))
+
+    create = function('create_ros_message', ctypes.c_void_p)
+    destroy = function('destroy_ros_message', None, ctypes.c_void_p)
+    from_py = function('convert_from_py', ctypes.c_bool, ctypes.py_object, ctypes.c_void_p)
+    to_py = function('convert_to_py', ctypes.py_object, ctypes.c_void_p)
+    to_py_with_owner = function(
+        'convert_to_py_with_owner', ctypes.py_object, ctypes.c_void_p, ctypes.py_object)
+    raw = create()
+    try:
+        owner = bytearray(1)
+        message = to_py_with_owner(raw, owner)
+        assert message.float64_values.flags.writeable
+        assert message.float64_values.base is owner
+        message.float64_values[:] = [1.5, -2.5, 3.5]
+        message.int8_values[1] = -7
+        message.uint8_values = numpy.array([4, 5, 6], dtype=numpy.uint8)
+        assert from_py(message, raw)
+        copied = to_py(raw)
+        assert list(copied.float64_values) == [1.5, -2.5, 3.5]
+        assert list(copied.int8_values) == [0, -7, 0]
+        assert list(copied.uint8_values) == [4, 5, 6]
+        del message
+    finally:
+        destroy(raw)
+
+
 @pytest.mark.parametrize('message_type', MESSAGE_TYPES, ids=[t.__name__ for t in MESSAGE_TYPES])
 def test_message_pickle_and_native_lifetime(message_type):
     """Native bases preserve pickle, subclass storage, and cyclic garbage collection."""

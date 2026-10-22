@@ -46,6 +46,18 @@ message class or the C message. Empty arrays also retain their owner. The arrays
 cannot be made writable using `setflags(write=True)`; use `field.copy()` when
 mutation is required. Republishing and serialization accept these views.
 
+## Publisher loans
+
+rclpy's `Publisher.borrow_loaned_message()` converts a middleware loan with
+`_CONVERT_TO_PY_WITH_OWNER` and an owner that exports a writable buffer. Views
+whose owner exports a writable buffer stay writable, the rule NumPy applies to
+the bases of its own arrays, so assigning through them fills the loan in place.
+Owners without a writable buffer, such as the capsules of received messages,
+still get read-only views. `_CONVERT_FROM_PY` skips a fixed array whose NumPy
+data already is the destination field, so publishing such a message copies
+nothing for those fields. Message packages generated before this change give
+read-only views of a loan.
+
 The ordinary `_CONVERT_TO_PY` capsule always makes an independent Python copy.
 An additive `_CONVERT_TO_PY_WITH_OWNER` capsule accepts the C message pointer and
 an owning Python object. The ordinary capsule's context advertises the owned
