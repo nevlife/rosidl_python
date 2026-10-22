@@ -46,17 +46,28 @@ message class or the C message. Empty arrays also retain their owner. The arrays
 cannot be made writable using `setflags(write=True)`; use `field.copy()` when
 mutation is required. Republishing and serialization accept these views.
 
+The taken buffer depends on how the message arrived:
+
+| Arrival | Buffer under the views |
+| --- | --- |
+| RMW, ordinary take | The C message the RMW deserialized into |
+| RMW subscription loan | The middleware loan itself, returned when the last view is gone. `Subscription.can_loan_messages` is true only for a fixed-size type, an RMW that lends it, and `ROS_DISABLE_LOANED_MESSAGES=0` (Jazzy disables subscription loans by default) |
+| rcl broker (`RCL_INTRA_PROCESS=1`, `rmw_zenoh_cpp`, same rcl context) | The broker's message, shared with the other readers in the context. A subscription that uses the broker reports `can_loan_messages` as false |
+
 ## Publisher loans
 
-rclpy's `Publisher.borrow_loaned_message()` converts a middleware loan with
+When `Publisher.can_loan_messages` is true, rclpy's
+`Publisher.borrow_loaned_message()` converts a middleware loan with
 `_CONVERT_TO_PY_WITH_OWNER` and an owner that exports a writable buffer. Views
 whose owner exports a writable buffer stay writable, the rule NumPy applies to
 the bases of its own arrays, so assigning through them fills the loan in place.
 Owners without a writable buffer, such as the capsules of received messages,
 still get read-only views. `_CONVERT_FROM_PY` skips a fixed array whose NumPy
 data already is the destination field, so publishing such a message copies
-nothing for those fields. Message packages generated before this change give
-read-only views of a loan.
+nothing for those fields. Writable loan views do not need
+`RCLPY_MESSAGE_ARRAYS`. Message packages generated before this change give
+read-only views of a loan. Without a loan, `borrow_loaned_message()` returns an
+ordinary new message.
 
 The ordinary `_CONVERT_TO_PY` capsule always makes an independent Python copy.
 An additive `_CONVERT_TO_PY_WITH_OWNER` capsule accepts the C message pointer and
@@ -69,10 +80,17 @@ also uses the ordinary converter. The legacy Python view factory remains availab
 for previously generated packages, but regenerated converters use the NumPy C API.
 Services/actions currently keep their existing copying receive paths.
 
-The opt-in removes the C-to-Python payload copy. It does not remove the RMW/CDR
-copy into the taken C message or the Python-to-C copy on publish. Keeping a tiny
-slice retains the entire C message, so applications should copy small selections
-when they otherwise hold a large message for a long time. Direct C API view
+Payload copies of numeric arrays by path, with the opt-in on the receiving side:
+
+| Path | Publish | Receive |
+| --- | --- | --- |
+| Ordinary publish and take | Python to C, then serialization | Deserialization into the taken C message; the opt-in removes the C-to-Python copy |
+| Publisher loan | None for fixed arrays filled through the views | Depends on the receiving path |
+| Subscription loan | Depends on the publishing path | None |
+| rcl broker | Python to C, no serialization | None |
+
+Keeping a tiny slice retains the entire C message or loan, so applications should
+copy small selections when they otherwise hold a large message for a long time. Direct C API view
 construction avoids a Python function call and buffer wrapper for each array.
 Extensions built against NumPy 1.26 or NumPy 2 headers run with both NumPy 1.26
 and NumPy 2 runtimes. With NumPy 1.x headers the converter loads the NumPy C API
