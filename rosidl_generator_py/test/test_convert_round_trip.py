@@ -206,9 +206,6 @@ def _field_value(slot_type: Any, seed: int) -> Any:
         if isinstance(slot_type, Array):
             return numpy.array(values, dtype=dtype)
         return array.array(type_code, values)
-    if (isinstance(slot_type, AbstractSequence) and
-            isinstance(value_type, BasicType) and value_type.typename == 'octet'):
-        return b''.join(values)
     return values
 
 

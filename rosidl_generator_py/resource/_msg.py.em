@@ -52,10 +52,6 @@ for member in message.structure.members:
     if (isinstance(member.type, AbstractSequence) and
             isinstance(type_, BasicType) and type_.typename == 'boolean'):
         imports.setdefault('import sys', [])
-    if (isinstance(member.type, AbstractSequence) and
-            isinstance(type_, BasicType) and type_.typename == 'octet'):
-        imports.setdefault('import array', [])
-        imports.setdefault('import sys', [])
     if (
         isinstance(member.type, AbstractNestedType) and
         isinstance(member.type.value_type, BasicType) and
@@ -370,9 +366,7 @@ if isinstance(type_, AbstractNestedType):
 @[        end if]@
 @[      end if]@
 @[    elif isinstance(member.type, AbstractSequence)]@
-@[      if isinstance(type_, BasicType) and type_.typename == 'octet']@
-        self.@(member.name) = kwargs.get('@(member.name)', b'')
-@[      elif isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
+@[      if isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
         value = kwargs.get(
             '@(member.name)', array.array('@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['type_code'])'))
         if self._check_fields and '@(member.name)' in kwargs and isinstance(value, array.array):
@@ -495,27 +489,7 @@ if member.name in dict(inspect.getmembers(builtins)).keys():
                 self._@(member.name) = value
                 return
 @[  end if]@
-@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-        if isinstance(value, bytes):
-            pass
-        elif isinstance(value, (bytearray, memoryview, array.array)) or (
-                'numpy' in sys.modules and isinstance(value, sys.modules['numpy'].ndarray)):
-            value = bytes(value)
-        else:
-            # The previous API assigned lists of one-byte bytes objects.
-            if self._check_fields:
-                assert isinstance(value, (list, tuple)) and all(
-                    isinstance(v, bytes) and len(v) == 1 for v in value), \
-                    "The '@(member.name)' field must be of type 'bytes' or a sequence of one-byte 'bytes'"
-            value = b''.join(value)
-@[    if isinstance(member.type, BoundedSequence)]@
-        if self._check_fields:
-            assert len(value) <= @(member.type.maximum_size), \
-                "The '@(member.name)' field must have length <= @(member.type.maximum_size)"
-@[    end if]@
-        self._@(member.name) = value
-        return
-@[  elif isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename in SPECIAL_NESTED_BASIC_TYPES]@
+@[  if isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename in SPECIAL_NESTED_BASIC_TYPES]@
 @[    if type_.typename == 'uint8']@
         if type(value) in (bytes, bytearray)@(' and len(value) <= %d' % member.type.maximum_size if isinstance(member.type, BoundedSequence) else ''):
             self._@(member.name) = array.array('B', value)

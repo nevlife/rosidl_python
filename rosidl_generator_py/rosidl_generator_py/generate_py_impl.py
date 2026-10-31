@@ -204,10 +204,6 @@ def value_to_py(type_, value, array_as_tuple=False):
     if not isinstance(type_, AbstractNestedType):
         return primitive_value_to_py(type_, value)
 
-    if (isinstance(type_, AbstractSequence) and
-            isinstance(type_.value_type, BasicType) and type_.value_type.typename == 'octet'):
-        return repr(bytes(literal_eval(value)))
-
     py_values = []
     for single_value in literal_eval(value):
         py_value = primitive_value_to_py(type_.value_type, single_value)

@@ -60,25 +60,6 @@ def test_uint8_bytes_bound(container):
         msg.uint8_values = container([0, 1, 2, 3])
 
 
-@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
-@pytest.mark.parametrize('check_fields', [False, True])
-def test_octet_sequence_list_assignment(message_type, check_fields):
-    msg = message_type(check_fields=check_fields, byte_values=[b'\x00', b'\xff'])
-    assert msg.byte_values == b'\x00\xff'
-    msg.byte_values = (b'a',)
-    assert msg.byte_values == b'a'
-    msg.byte_values = []
-    assert msg.byte_values == b''
-
-
-def test_octet_sequence_list_validation():
-    msg = BoundedSequences(check_fields=True)
-    with pytest.raises(AssertionError):
-        msg.byte_values = [b'ab']
-    with pytest.raises(AssertionError):
-        msg.byte_values = [b'a', b'b', b'c', b'd']
-
-
 @pytest.mark.parametrize('layout', ['contiguous', 'strided', 'reversed', 'empty'])
 def test_uint8_numpy_assignment(layout):
     value = numpy.arange(6, dtype=numpy.uint8)
@@ -615,7 +596,7 @@ def test_bounded_sequences():
 
     # types
     assert isinstance(msg.bool_values, list)
-    assert isinstance(msg.byte_values, bytes)
+    assert isinstance(msg.byte_values, list)
     # for legacy reasons, 'char' from a .msg interface maps to 'uint8'
     assert isinstance(msg.char_values, array.array)
     assert isinstance(msg.float32_values, array.array)
@@ -633,7 +614,7 @@ def test_bounded_sequences():
 
     # defaults
     assert [] == msg.bool_values
-    assert b'' == msg.byte_values
+    assert [] == msg.byte_values
     assert array.array('B') == msg.char_values
     assert array.array('f') == msg.float32_values
     assert array.array('d') == msg.float64_values
@@ -653,8 +634,8 @@ def test_bounded_sequences():
     assert list_of_bool == msg.bool_values
     msg.bool_values = short_list_of_bool
     assert short_list_of_bool == msg.bool_values
-    list_of_byte = b'abc'
-    short_list_of_byte = b'd'
+    list_of_byte = [b'a', b'b', b'c']
+    short_list_of_byte = [b'd']
     msg.byte_values = list_of_byte
     assert list_of_byte == msg.byte_values
     msg.byte_values = short_list_of_byte
@@ -730,7 +711,7 @@ def test_bounded_sequences():
     with pytest.raises(AssertionError):
         msg.bool_values = [True, False, True, False]
     with pytest.raises(AssertionError):
-        msg.byte_values = b'abcd'
+        msg.byte_values = [b'a', b'b', b'c', b'd']
     with pytest.raises(AssertionError):
         msg.char_values = [1, 2, 3, 4]
     with pytest.raises(AssertionError):
@@ -838,7 +819,7 @@ def test_unbounded_sequences():
     msg = UnboundedSequences(check_fields=True)
 
     # types
-    assert isinstance(msg.byte_values, bytes)
+    assert isinstance(msg.byte_values, list)
     # for legacy reasons, 'char' from a .msg interface maps to 'uint8'
     assert isinstance(msg.char_values, array.array)
     assert isinstance(msg.float32_values, array.array)
@@ -856,7 +837,7 @@ def test_unbounded_sequences():
 
     # defaults
     assert [] == msg.bool_values
-    assert b'' == msg.byte_values
+    assert [] == msg.byte_values
     assert array.array('B') == msg.char_values
     assert array.array('f') == msg.float32_values
     assert array.array('d') == msg.float64_values
@@ -873,7 +854,7 @@ def test_unbounded_sequences():
     list_of_bool = [True, False, True]
     msg.bool_values = list_of_bool
     assert list_of_bool == msg.bool_values
-    list_of_byte = b'abc'
+    list_of_byte = [b'a', b'b', b'c']
     msg.byte_values = list_of_byte
     assert list_of_byte == msg.byte_values
     list_of_char = [0, 1, 255]
@@ -1164,30 +1145,6 @@ def test_numpy_sequence_conversion_unchecked():
 
 @pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
 @pytest.mark.parametrize('check_fields', [False, True])
-@pytest.mark.parametrize('value', [
-    bytearray(b'ab'), memoryview(b'ab'), array.array('B', b'ab'),
-    numpy.frombuffer(b'ab', dtype=numpy.uint8), numpy.frombuffer(b'xab', dtype=numpy.uint8)[1:],
-    numpy.frombuffer(b'aXb', dtype=numpy.uint8)[::2],
-])
-def test_octet_sequence_buffer_assignment(message_type, check_fields, value):
-    msg = message_type(check_fields=check_fields, byte_values=value)
-    assert msg.byte_values == b'ab'
-    msg.byte_values = value
-    assert type(msg.byte_values) is bytes
-    assert msg.byte_values == b'ab'
-
-
-def test_octet_sequence_buffer_copy():
-    value = bytearray(b'ab')
-    msg = UnboundedSequences(byte_values=value)
-    value[0] = ord('z')
-    assert msg.byte_values == b'ab'
-    with pytest.raises(AssertionError, match='length <= 3'):
-        BoundedSequences(check_fields=True, byte_values=bytearray(b'abcd'))
-
-
-@pytest.mark.parametrize('message_type', [BoundedSequences, UnboundedSequences])
-@pytest.mark.parametrize('check_fields', [False, True])
 def test_numpy_bool_sequence(message_type, check_fields):
     value = numpy.array([True, False, True], dtype=numpy.bool_)
     msg = message_type(check_fields=check_fields)
@@ -1215,12 +1172,12 @@ def test_sequences_without_numpy(message_type):
     try:
         sys.modules['numpy'] = None
         msg = message_type(check_fields=True)
-        msg.byte_values = bytearray(b'ab')
+        msg.byte_values = [b'a', b'b']
         msg.bool_values = [True, False]
         msg.uint8_values = [1, 2]
         msg.float64_values = array.array('d', [1.5])
         other = message_type(
-            check_fields=True, byte_values=b'ab', bool_values=[True, False],
+            check_fields=True, byte_values=[b'a', b'b'], bool_values=[True, False],
             uint8_values=b'\x01\x02', float64_values=[1.5])
         assert msg == other
         other.float64_values = [2.5]

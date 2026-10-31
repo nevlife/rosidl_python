@@ -386,21 +386,6 @@ nested_type = '__'.join(type_.namespaced_name())
         memcpy(&dest[i], PyArray_GETPTR1(seq_field, i), sizeof(*dest));
       }
     }
-@[  elif isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-    char * data;
-    Py_ssize_t size;
-    if (PyBytes_AsStringAndSize(field, &data, &size) < 0) {
-      Py_DECREF(field);
-      return false;
-    }
-    if (!rosidl_runtime_c__octet__Sequence__init(&ros_message->@(member.name), size)) {
-      PyErr_NoMemory();
-      Py_DECREF(field);
-      return false;
-    }
-    if (size > 0) {
-      memcpy(ros_message->@(member.name).data, data, size);
-    }
 @[  elif isinstance(member.type, AbstractNestedType)]@
 @[    if isinstance(member.type, AbstractSequence) and isinstance(member.type.value_type, BasicType)]@
     if (PyObject_CheckBuffer(field)) {
@@ -924,13 +909,6 @@ nested_type = '__'.join(type_.namespaced_name())
       }
     }
     if (field == NULL) {
-      Py_DECREF(_pymessage);
-      return NULL;
-    }
-@[  elif isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'octet']@
-    field = PyBytes_FromStringAndSize(
-      (const char *)ros_message->@(member.name).data, ros_message->@(member.name).size);
-    if (!field) {
       Py_DECREF(_pymessage);
       return NULL;
     }

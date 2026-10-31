@@ -18,24 +18,13 @@ representation. Correctly typed `array.array` inputs and `bytes`/`bytearray` for
 `uint8[]` keep their fast paths. Ordinary Python sequences retain their existing
 element/range checks when field checking is enabled.
 
-`sequence<octet>` (`byte[]`, including bounded sequences) now maps to Python
-`bytes`, with `b''` as its empty default. This is an intentional Python API change:
-reads return bytes instead of lists of one-byte bytes objects. Assigning such a
-list still works; the setter joins it into bytes. `bytearray`, `memoryview`,
-`array.array` and NumPy arrays are copied with `bytes(value)`, which takes their
-raw buffer like the stock C conversion. Scalar octets and fixed
-arrays of octets retain their previous representation. `uint8[]`, as used by
-Image and PointCloud2, is a different IDL type and retains its normal default
-`array.array` representation.
-
 ## Opt-in received views
 
 Set `RCLPY_MESSAGE_ARRAYS=numpy` before starting a process to make rclpy
 subscriptions and `deserialize_message` return read-only NumPy views for numeric
 primitive arrays and sequences, including boolean sequences. This setting is
 cached at the first received conversion. Generated constructors and normal
-setters still use their ordinary containers. Octet sequences remain bytes;
-string/message sequences retain their usual containers.
+setters still use their ordinary containers. String/message sequences retain their usual containers.
 
 The NumPy C API creates each ndarray directly over the taken buffer, with its
 base set to an owning capsule for the entire taken C message.
