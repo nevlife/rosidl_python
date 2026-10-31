@@ -46,12 +46,7 @@ message class or the C message. Empty arrays also retain their owner. The arrays
 cannot be made writable using `setflags(write=True)`; use `field.copy()` when
 mutation is required. Republishing and serialization accept these views.
 
-The taken buffer depends on how the message arrived:
-
-| Arrival | Buffer under the views |
-| --- | --- |
-| RMW take | The C message the RMW deserialized into |
-| rcl broker (`RCL_INTRA_PROCESS=1`, `rmw_zenoh_cpp`, same rcl context) | The broker's message, shared with the other readers in the context |
+The views cover the C message that the RMW deserialized into.
 
 The ordinary `_CONVERT_TO_PY` capsule always makes an independent Python copy.
 An additive `_CONVERT_TO_PY_WITH_OWNER` capsule accepts the C message pointer and
@@ -69,7 +64,6 @@ Payload copies of numeric arrays by path, with the opt-in on the receiving side:
 | Path | Publish | Receive |
 | --- | --- | --- |
 | Ordinary publish and take | Python to C, then serialization | Deserialization into the taken C message; the opt-in removes the C-to-Python copy |
-| rcl broker | Python to C, no serialization | None |
 
 Keeping a tiny slice retains the entire C message, so applications should copy
 small selections when they otherwise hold a large message for a long time. Direct
