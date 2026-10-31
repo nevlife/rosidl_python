@@ -35,7 +35,6 @@ include_base = '/'.join(include_parts)
 header_files = [
     'Python.h',
     'stdbool.h',
-    'stdint.h',
     'numpy/ndarrayobject.h',
     'rosidl_runtime_c/visibility_control.h',
     include_base + '__struct.h',
@@ -69,77 +68,6 @@ repeated_header_file = header_file in include_directives
 #endif
 @[    end if]@
 @[end for]@
-@{
-needs_view_helper = False
-for m in message.structure.members:
-    if (isinstance(m.type, AbstractNestedType) and isinstance(m.type.value_type, BasicType) and
-            (m.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or
-             (isinstance(m.type, AbstractSequence) and m.type.value_type.typename == 'boolean'))):
-        needs_view_helper = True
-emit_view_helper = needs_view_helper and 'rosidl_numpy_view' not in include_directives
-if emit_view_helper:
-    include_directives.add('rosidl_numpy_view')
-}@
-@[if emit_view_helper]@
-
-static int rosidl_generator_py__import_numpy(void)
-{
-#if NPY_ABI_VERSION >= 0x02000000
-  return _import_array();
-#else
-  // NumPy 1.x headers reject the NumPy 2 table, whose slots used here are unchanged.
-  PyObject * module = PyImport_ImportModule("numpy._core._multiarray_umath");
-  if (module == NULL && PyErr_ExceptionMatches(PyExc_ModuleNotFoundError)) {
-    PyErr_Clear();
-    module = PyImport_ImportModule("numpy.core._multiarray_umath");
-  }
-  if (module == NULL) {
-    return -1;
-  }
-  PyObject * capsule = PyObject_GetAttrString(module, "_ARRAY_API");
-  Py_DECREF(module);
-  if (capsule == NULL) {
-    return -1;
-  }
-  PyArray_API = (void **)PyCapsule_GetPointer(capsule, NULL);
-  Py_DECREF(capsule);
-  if (PyArray_API == NULL) {
-    return -1;
-  }
-  if (PyArray_GetNDArrayCVersion() > 0x02000000 ||
-    PyArray_GetNDArrayCFeatureVersion() < NPY_FEATURE_VERSION)
-  {
-    PyErr_Format(
-      PyExc_ImportError, "unsupported NumPy C ABI 0x%x, C API 0x%x",
-      PyArray_GetNDArrayCVersion(), PyArray_GetNDArrayCFeatureVersion());
-    PyArray_API = NULL;
-    return -1;
-  }
-  return 0;
-#endif
-}
-
-static PyObject * rosidl_generator_py__numpy_view(
-  void * data, size_t size, int type, PyObject * owner)
-{
-  if (PyArray_API == NULL && rosidl_generator_py__import_numpy() < 0) {
-    return NULL;
-  }
-  static const uint64_t empty = 0;
-  npy_intp shape[1] = {(npy_intp)size};
-  PyObject * field = PyArray_SimpleNewFromData(1, shape, type, data ? data : (void *)&empty);
-  if (field == NULL) {
-    return NULL;
-  }
-  PyArray_CLEARFLAGS((PyArrayObject *)field, NPY_ARRAY_WRITEABLE);
-  Py_INCREF(owner);
-  if (PyArray_SetBaseObject((PyArrayObject *)field, owner) < 0) {
-    Py_DECREF(field);
-    return NULL;
-  }
-  return field;
-}
-@[end if]@
 
 @{
 have_not_included_primitive_arrays = True
@@ -210,9 +138,6 @@ nested_header += '__functions.h'
 msg_typename = '__'.join(message.structure.namespaced_type.namespaced_name())
 }@
 @
-@{
-declared_types = set()
-}@
 @[for member in message.structure.members]@
 @{
 type_ = member.type
@@ -220,62 +145,14 @@ if isinstance(type_, AbstractNestedType):
     type_ = type_.value_type
 }@
 @[  if isinstance(type_, NamespacedType)]@
-@{
-type_key = tuple(type_.namespaced_name())
-already_declared = type_key in declared_types
-declared_types.add(type_key)
-}@
-@[    if not already_declared]@
-@[      if type_.namespaces[0] != package_name]@
+@[    if type_.namespaces[0] != package_name]@
 ROSIDL_GENERATOR_C_IMPORT
-@[      end if]@
-bool @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_from_py(PyObject * _pymsg, void * _ros_message);
-@[      if type_.namespaces[0] != package_name]@
-ROSIDL_GENERATOR_C_IMPORT
-@[      end if]@
-PyObject * @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(void * raw_ros_message);
-@{
-owned_helper = '__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]) + '__convert_to_py_maybe_owned'
-new_helper = owned_helper not in include_directives
-include_directives.add(owned_helper)
-}@
-@[      if new_helper]@
-static PyObject * @(owned_helper)(void * message, PyObject * owner)
-{
-  if (owner == NULL) {
-    return @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(message);
-  }
-  typedef PyObject * (*owned_converter)(void *, PyObject *);
-  static owned_converter convert = NULL;
-  static bool initialized = false;
-  if (!initialized) {
-    PyObject * module = PyImport_ImportModule("@(type_.namespaces[0]).@(type_.namespaces[0])_s__rosidl_typesupport_c");
-    if (module == NULL) {
-      return NULL;
-    }
-    PyObject * capsule = PyObject_GetAttrString(
-      module, "convert_to_py_with_owner_msg__@('__'.join(type_.namespaces[1:] + [convert_camel_case_to_lower_case_underscore(type_.name)]))");
-    Py_DECREF(module);
-    if (capsule != NULL) {
-      convert = (owned_converter)PyCapsule_GetPointer(capsule, NULL);
-      Py_DECREF(capsule);
-      if (convert == NULL) {
-        return NULL;
-      }
-    } else if (PyErr_ExceptionMatches(PyExc_AttributeError)) {
-      PyErr_Clear();
-    } else {
-      return NULL;
-    }
-    initialized = true;
-  }
-  if (convert != NULL) {
-    return convert(message, owner);
-  }
-  return @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(message);
-}
-@[      end if]@
 @[    end if]@
+bool @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_from_py(PyObject * _pymsg, void * _ros_message);
+@[    if type_.namespaces[0] != package_name]@
+ROSIDL_GENERATOR_C_IMPORT
+@[    end if]@
+PyObject * @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(void * raw_ros_message);
 @[  end if]@
 @[end for]@
 
@@ -637,18 +514,8 @@ nested_type = '__'.join(type_.namespaced_name())
 }
 
 ROSIDL_GENERATOR_C_EXPORT
-PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [convert_camel_case_to_lower_case_underscore(message.structure.namespaced_type.name)]))__convert_to_py_with_owner(void * raw_ros_message, PyObject * owner);
-
-ROSIDL_GENERATOR_C_EXPORT
 PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [convert_camel_case_to_lower_case_underscore(message.structure.namespaced_type.name)]))__convert_to_py(void * raw_ros_message)
 {
-  return @('__'.join(message.structure.namespaced_type.namespaces + [convert_camel_case_to_lower_case_underscore(message.structure.namespaced_type.name)]))__convert_to_py_with_owner(raw_ros_message, NULL);
-}
-
-ROSIDL_GENERATOR_C_EXPORT
-PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [convert_camel_case_to_lower_case_underscore(message.structure.namespaced_type.name)]))__convert_to_py_with_owner(void * raw_ros_message, PyObject * owner)
-{
-  (void)owner;
   static PyObject * cached_pymessage_class = NULL;
   static PyObject * cached_check_fields_default = NULL;
   PyObject * _pymessage = NULL;
@@ -787,74 +654,55 @@ if isinstance(type_, AbstractNestedType):
   {  // @(member.name)
     PyObject * field = NULL;
 @[ if isinstance(member.type, AbstractNestedType) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-    if (owner != NULL) {
-      field = rosidl_generator_py__numpy_view(
 @[    if isinstance(member.type, Array)]@
-        ros_message->@(member.name), @(member.type.size),
-@[    else]@
-        ros_message->@(member.name).data, ros_message->@(member.name).size,
-@[    end if]@
-        @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()), owner);
-      if (field == NULL) {
-        Py_DECREF(_pymessage);
-        return NULL;
-      }
-      base_msg->_@(member.name) = field;
-    } else {
-@[    if isinstance(member.type, Array)]@
-      field = PyObject_Call(
-        cached_numpy_empty_@(member.name),
-        cached_numpy_args_@(member.name),
-        cached_numpy_kwargs_@(member.name));
-      if (!field) {
-        Py_DECREF(_pymessage);
-        return NULL;
-      }
-      assert(field->ob_type != NULL);
-      assert(field->ob_type->tp_name != NULL);
-      assert(strcmp(field->ob_type->tp_name, "numpy.ndarray") == 0);
-      PyArrayObject * seq_field = (PyArrayObject *)field;
-      assert(PyArray_NDIM(seq_field) == 1);
-      assert(PyArray_TYPE(seq_field) == @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()));
-      assert(sizeof(@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_'))) == sizeof(@primitive_msg_type_to_c(member.type.value_type)));
-      @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_')) * dst = (@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_')) *)PyArray_GETPTR1(seq_field, 0);
-      @primitive_msg_type_to_c(member.type.value_type) * src = &(ros_message->@(member.name)[0]);
-      memcpy(dst, src, @(member.type.size) * sizeof(@primitive_msg_type_to_c(member.type.value_type)));
-      {
-        base_msg->_@(member.name) = field;
-      }
-@[    elif isinstance(member.type, AbstractSequence)]@
-      field = PyObject_CallFunctionObjArgs(
-        cached_array_type_@(member.name), cached_array_typecode_@(member.name), NULL);
-      if (!field) {
-        Py_DECREF(_pymessage);
-        return NULL;
-      }
-      if (ros_message->@(member.name).size > 0) {
-        // frombytes on a memoryview copies once; array.array(typecode, bytes) would copy twice
-        PyObject * data = PyMemoryView_FromMemory(
-          (char *)ros_message->@(member.name).data,
-          ros_message->@(member.name).size * sizeof(@primitive_msg_type_to_c(member.type.value_type)),
-          PyBUF_READ);
-        if (!data) {
-          Py_DECREF(field);
-          Py_DECREF(_pymessage);
-          return NULL;
-        }
-        PyObject * ret = PyObject_CallMethodObjArgs(field, cached_array_frombytes_@(member.name), data, NULL);
-        Py_DECREF(data);
-        if (!ret) {
-          Py_DECREF(field);
-          Py_DECREF(_pymessage);
-          return NULL;
-        }
-        Py_DECREF(ret);
-      }
-      {
-        base_msg->_@(member.name) = field;
-      }
-@[    end if]@
+    field = PyObject_Call(
+      cached_numpy_empty_@(member.name),
+      cached_numpy_args_@(member.name),
+      cached_numpy_kwargs_@(member.name));
+    if (!field) {
+      Py_DECREF(_pymessage);
+      return NULL;
     }
+    assert(field->ob_type != NULL);
+    assert(field->ob_type->tp_name != NULL);
+    assert(strcmp(field->ob_type->tp_name, "numpy.ndarray") == 0);
+    PyArrayObject * seq_field = (PyArrayObject *)field;
+    assert(PyArray_NDIM(seq_field) == 1);
+    assert(PyArray_TYPE(seq_field) == @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'NPY_').upper()));
+    assert(sizeof(@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_'))) == sizeof(@primitive_msg_type_to_c(member.type.value_type)));
+    @(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_')) * dst = (@(SPECIAL_NESTED_BASIC_TYPES[member.type.value_type.typename]['dtype'].replace('numpy.', 'npy_')) *)PyArray_GETPTR1(seq_field, 0);
+    @primitive_msg_type_to_c(member.type.value_type) * src = &(ros_message->@(member.name)[0]);
+    memcpy(dst, src, @(member.type.size) * sizeof(@primitive_msg_type_to_c(member.type.value_type)));
+    base_msg->_@(member.name) = field;
+@[    elif isinstance(member.type, AbstractSequence)]@
+    field = PyObject_CallFunctionObjArgs(
+      cached_array_type_@(member.name), cached_array_typecode_@(member.name), NULL);
+    if (!field) {
+      Py_DECREF(_pymessage);
+      return NULL;
+    }
+    if (ros_message->@(member.name).size > 0) {
+      // frombytes on a memoryview copies once; array.array(typecode, bytes) would copy twice
+      PyObject * data = PyMemoryView_FromMemory(
+        (char *)ros_message->@(member.name).data,
+        ros_message->@(member.name).size * sizeof(@primitive_msg_type_to_c(member.type.value_type)),
+        PyBUF_READ);
+      if (!data) {
+        Py_DECREF(field);
+        Py_DECREF(_pymessage);
+        return NULL;
+      }
+      PyObject * ret = PyObject_CallMethodObjArgs(field, cached_array_frombytes_@(member.name), data, NULL);
+      Py_DECREF(data);
+      if (!ret) {
+        Py_DECREF(field);
+        Py_DECREF(_pymessage);
+        return NULL;
+      }
+      Py_DECREF(ret);
+    }
+    base_msg->_@(member.name) = field;
+@[    end if]@
 @[ else]@
 @[  if isinstance(type_, NamespacedType)]@
 @{
@@ -878,7 +726,7 @@ nested_type = '__'.join(type_.namespaced_name())
 @[      else]@
       item = &(ros_message->@(member.name)[i]);
 @[      end if]@
-      PyObject * pyitem = @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py_maybe_owned(item, owner);
+      PyObject * pyitem = @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(item);
       if (!pyitem) {
         Py_DECREF(field);
         Py_DECREF(_pymessage);
@@ -890,28 +738,12 @@ nested_type = '__'.join(type_.namespaced_name())
     }
     assert(PySequence_Check(field));
 @[    else]@
-    field = @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py_maybe_owned(&ros_message->@(member.name), owner);
+    field = @('__'.join(type_.namespaces + [convert_camel_case_to_lower_case_underscore(type_.name)]))__convert_to_py(&ros_message->@(member.name));
     if (!field) {
       Py_DECREF(_pymessage);
       return NULL;
     }
 @[    end if]@
-@[  elif isinstance(member.type, AbstractSequence) and isinstance(type_, BasicType) and type_.typename == 'boolean']@
-    if (owner != NULL) {
-      field = rosidl_generator_py__numpy_view(
-        ros_message->@(member.name).data, ros_message->@(member.name).size, NPY_BOOL, owner);
-    } else {
-      field = PyList_New(ros_message->@(member.name).size);
-      if (field != NULL) {
-        for (size_t i = 0; i < ros_message->@(member.name).size; ++i) {
-          PyList_SET_ITEM(field, i, PyBool_FromLong(ros_message->@(member.name).data[i]));
-        }
-      }
-    }
-    if (field == NULL) {
-      Py_DECREF(_pymessage);
-      return NULL;
-    }
 @[  elif isinstance(member.type, AbstractNestedType)]@
 @[    if isinstance(member.type, AbstractSequence)]@
     size_t size = ros_message->@(member.name).size;

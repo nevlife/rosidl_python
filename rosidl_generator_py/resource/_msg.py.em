@@ -101,7 +101,6 @@ class Metaclass_@(message.structure.namespaced_type.name)(type):
     _CREATE_ROS_MESSAGE = None
     _CONVERT_FROM_PY = None
     _CONVERT_TO_PY = None
-    _CONVERT_TO_PY_WITH_OWNER = None
     _DESTROY_ROS_MESSAGE = None
     _TYPE_SUPPORT = None
 
@@ -145,7 +144,6 @@ suffix = '__'.join(message.structure.namespaced_type.namespaces[1:]) + '__' + co
             cls._CREATE_ROS_MESSAGE = module.create_ros_message_msg__@(suffix)
             cls._CONVERT_FROM_PY = module.convert_from_py_msg__@(suffix)
             cls._CONVERT_TO_PY = module.convert_to_py_msg__@(suffix)
-            cls._CONVERT_TO_PY_WITH_OWNER = module.convert_to_py_with_owner_msg__@(suffix)
             cls._TYPE_SUPPORT = module.type_support_msg__@(suffix)
             cls._DESTROY_ROS_MESSAGE = module.destroy_ros_message_msg__@(suffix)
 @{
@@ -401,9 +399,7 @@ if isinstance(type_, AbstractNestedType):
                 isinstance(t.value_type, rosidl_parser.definition.BasicType) and
                 t.value_type.typename in @([*SPECIAL_NESTED_BASIC_TYPES])
             ):
-                if hasattr(field, 'tolist'):
-                    fieldstr = repr(field.tolist())
-                elif len(field) == 0:
+                if len(field) == 0:
                     fieldstr = '[]'
                 else:
                     if self._check_fields:
@@ -417,28 +413,12 @@ if isinstance(type_, AbstractNestedType):
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
             return False
-@{
-compares_sequences_with_numpy = False
-for m in message.structure.members:
-    if (
-        isinstance(m.type, AbstractSequence) and isinstance(m.type.value_type, BasicType) and
-        (m.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or
-         m.type.value_type.typename == 'boolean')
-    ):
-        compares_sequences_with_numpy = True
-}@
-@[if compares_sequences_with_numpy]@
-        numpy = sys.modules.get('numpy')
-@[end if]@
 @[for member in message.structure.members]@
 @[  if len(message.structure.members) == 1 and member.name == EMPTY_STRUCTURE_REQUIRED_MEMBER_NAME]@
 @[    continue]@
 @[  end if]@
 @[  if isinstance(member.type, Array) and isinstance(member.type.value_type, BasicType) and member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES]@
-        if not numpy.array_equal(self.@(member.name), other.@(member.name)):
-@[  elif isinstance(member.type, AbstractSequence) and isinstance(member.type.value_type, BasicType) and (member.type.value_type.typename in SPECIAL_NESTED_BASIC_TYPES or member.type.value_type.typename == 'boolean')]@
-        if (self.@(member.name) != other.@(member.name) if numpy is None else
-                not numpy.array_equal(self.@(member.name), other.@(member.name))):
+        if any(self.@(member.name) != other.@(member.name)):
 @[  else]@
         if self.@(member.name) != other.@(member.name):
 @[  end if]@
